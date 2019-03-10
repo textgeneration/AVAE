@@ -1,4 +1,4 @@
-#Arrtributed controlled VAE Model
+# Arrtributed controlled VAE Model
 Implementing of Enhanced Attribute Controlled VAE Model in PyTorch.
 
 ## Requirements
