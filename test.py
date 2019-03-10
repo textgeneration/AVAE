@@ -31,7 +31,7 @@ args = parser.parse_args()
 
 
 mb_size = 32
-z_dim = 32
+z_dim = 64
 h_dim = 512
 lr = 1e-3
 lr_decay_every = 1000000
@@ -85,32 +85,6 @@ for i in range(0,1):
 
     print()
 
-'''
-# Interpolation
-c = model.sample_c_prior(1)
-
-z1 = model.sample_z_prior(1).view(1, 1, z_dim)
-z1 = z1.cuda() if args.gpu else z1
-
-z2 = model.sample_z_prior(1).view(1, 1, z_dim)
-z2 = z2.cuda() if args.gpu else z2
-
-# Interpolation coefficients
-alphas = np.linspace(0, 1, 5)
-
-print('Interpolation of z:')
-print('-------------------')
-
-for alpha in alphas:
-    z = float(1-alpha)*z1 + float(alpha)*z2
-
-    sample_idxs = model.sample_sentence(z, c, temp=0.1)
-    sample_sent = dataset.idxs2sentence(sample_idxs)
-
-    print("{}".format(sample_sent))
-
-print()
-'''
 
 def write_file():
     data = open("sample","w",newline='')
