@@ -7,7 +7,7 @@
 1. SETTINGS:ALL configuration of this project is in CONFIG.py, including file path, latent variable's dimension or batch size.
 When you have configured this parameters, you can train the model.
 2. Run `python train_vae.py `. This will create `vae_c-dimension_iteraion`. Essentially this is the base VAE.
-3. Run `python train_discriminator`. This will create `avae_c-dimension_iteration`. The discriminator is using Kim architecture. 
+3. Run `python train_avae.py`. This will create `avae_c-dimension_iteration`. 
 4. Run `test.py ` for basic evaluations, for example random generate sentence.
 
 ## Tips
