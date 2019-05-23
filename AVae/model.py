@@ -4,14 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from itertools import chain
-
+import CONFIG
 
 class RNN_VAE(nn.Module):
-    """
-    1. Hu, Zhiting, et al. "Toward controlled generation of text." ICML. 2017.
-    2. Bowman, Samuel R., et al. "Generating sentences from a continuous space." arXiv preprint arXiv:1511.06349 (2015).
-    3. Kim, Yoon. "Convolutional neural networks for sentence classification." arXiv preprint arXiv:1408.5882 (2014).
-    """
 
     def __init__(self, n_vocab, h_dim, z_dim, c_dim, p_word_dropout=0.3, unk_idx=0, pad_idx=1, start_idx=2, eos_idx=3, max_sent_len=15, pretrained_embeddings=None, freeze_embeddings=False, gpu=False):
         super(RNN_VAE, self).__init__()
@@ -56,7 +51,8 @@ class RNN_VAE(nn.Module):
         """
         Decoder is GRU with `z` and `c` appended at its inputs
         """
-        self.decoder = nn.GRU(self.emb_dim+z_dim+c_dim, z_dim+c_dim, dropout=0.3)
+        self.decoder = nn.GRU(self.emb_dim+z_dim+c_dim, z_dim+c_dim)
+        self.decoder_drop = nn.Dropout(p=0.3)
         self.decoder_fc = nn.Linear(z_dim+c_dim, n_vocab)
 
         """`
@@ -68,7 +64,7 @@ class RNN_VAE(nn.Module):
 
         self.disc_fc = nn.Sequential(
             nn.Dropout(0.5),
-            nn.Linear(300, self.c_dim)
+            nn.Linear(300, c_dim)
         )
 
         self.discriminator = nn.ModuleList([
@@ -144,9 +140,7 @@ class RNN_VAE(nn.Module):
         """
         Sample c ~ p(c) = Cat([0.5, 0.5])
         """
-        c = Variable(
-            torch.from_numpy(np.random.multinomial(1, [1/self.c_dim]*self.c_dim, mbsize).astype('float32'))
-        )
+        c = torch.from_numpy(np.random.multinomial(1, [1 / CONFIG.C_DIM]* CONFIG.C_DIM, mbsize).astype('float32'))
         c = c.cuda() if self.gpu else c
         #print(c)
         return c
@@ -163,7 +157,7 @@ class RNN_VAE(nn.Module):
         seq_len = dec_inputs.size(0)
 
         # 1 x mbsize x (z_dim+c_dim)
-        init_h = torch.cat([z.unsqueeze(0), c.unsqueeze(0)], dim=2)
+        init_h = torch.cat([z.unsqueeze(0), c.unsqueeze(0).cuda()], dim=2)
         #print(init_h)
         inputs_emb = self.word_emb(dec_inputs)  # seq_len x mbsize x emb_dim
         #print(inputs_emb.shape)
@@ -171,6 +165,7 @@ class RNN_VAE(nn.Module):
         #print(inputs_emb.shape)
 
         outputs, _ = self.decoder(inputs_emb, init_h)
+        outputs = self.decoder_drop(outputs)
         seq_len, mbsize, _ = outputs.size()
 
         #print(outputs)
@@ -246,7 +241,11 @@ class RNN_VAE(nn.Module):
         if use_c_prior:
             c = self.sample_c_prior(mbsize)
         else:
-            c = self.forward_discriminator(sentence.transpose(0, 1))
+            c = torch.zeros(mbsize, CONFIG.C_DIM).cuda()
+            _, pos = torch.max(self.forward_discriminator(sentence.transpose(0, 1)), 1)
+            for i in range(0,c.size(0)):
+                c[i][pos[i]] = 1
+
 
         # Decoder: sentence -> y
         y = self.forward_decoder(dec_inputs, z, c)
@@ -258,7 +257,7 @@ class RNN_VAE(nn.Module):
 
         return recon_loss, kl_loss, z
 
-    def generate_sentences(self, batch_size):
+    def generate_sentences(self, batch_size, class_0 = False):
         """
         Generate sentences and corresponding z of (batch_size x max_sent_len)
         """
@@ -268,6 +267,8 @@ class RNN_VAE(nn.Module):
         for _ in range(batch_size):
             z = self.sample_z_prior(1)
             c = self.sample_c_prior(1)
+            if(class_0):
+                c = torch.zeros(c.size())
             samples.append(self.sample_sentence(z, c, raw=True))
             cs.append(c.long())
 
@@ -306,6 +307,7 @@ class RNN_VAE(nn.Module):
             emb = torch.cat([emb, z, c], 2)
 
             output, h = self.decoder(emb, h)
+            output = self.decoder_drop(output)
             y = self.decoder_fc(output).view(-1)
             y = F.softmax(y/temp, dim=0)
 
@@ -330,7 +332,7 @@ class RNN_VAE(nn.Module):
         else:
             return outputs
 
-    def generate_soft_embed(self, mbsize, temp=1):
+    def generate_soft_embed(self, mbsize, temp=1, class_0 = False):
         """
         Generate soft embeddings of (mbsize x emb_dim) along with target z
         and c for each row (mbsize x {z_dim, c_dim})
@@ -342,8 +344,9 @@ class RNN_VAE(nn.Module):
         for _ in range(mbsize):
             z = self.sample_z_prior(1)
             c = self.sample_c_prior(1)
-
-            samples.append(self.sample_soft_embed(z, c, temp=1))
+            if(class_0):
+                c = torch.zeros(c.size())
+            samples.append(self.sample_soft_embed(z, c, temp=1, downDropoutBN=True))
             targets_z.append(z)
             targets_c.append(c)
 
@@ -353,14 +356,14 @@ class RNN_VAE(nn.Module):
 
         return X_gen, targets_z, targets_c
 
-    def sample_soft_embed(self, z, c, temp=1):
+    def sample_soft_embed(self, z, c, temp=1,downDropoutBN=False):
         """
         Sample single soft embedded sentence from p(x|z,c) and temperature.
         Soft embeddings are calculated as weighted average of word_emb
         according to p(x|z,c).
         """
-        self.eval()
 
+        self.decoder_drop.eval() if downDropoutBN else self.eval()
         z, c = z.view(1, 1, -1), c.view(1, 1, -1)
 
         word = torch.LongTensor([self.START_IDX])
@@ -378,6 +381,7 @@ class RNN_VAE(nn.Module):
 
         for i in range(self.MAX_SENT_LEN):
             output, h = self.decoder(emb, h)
+            output = self.decoder_drop(output)
             o = self.decoder_fc(output).view(-1)
 
             # Sample softmax with temperature

@@ -7,115 +7,58 @@ import torch.autograd as autograd
 import torch.optim as optim
 import numpy as np
 from torch.autograd import Variable
-import csv
 
-from AVae.dataset import SST_Dataset,Test_Dataset
-from AVae.model import RNN_VAE
-
+from avae.dataset import *
+from avae.model import RNN_VAE
 
 import argparse
 import random
 import time
 
 
-parser = argparse.ArgumentParser(
-    description='AVAE'
-)
+mb_size = CONFIG.BATCH_SIZE
+z_dim = CONFIG.Z_DIMENSION
+c_dim = CONFIG.C_DIM
+h_dim = z_dim + c_dim
+lr = CONFIG.LEARNING_RATE
+lr_decay_every = CONFIG.LEARNING_RATE_DECAY
+n_iter = CONFIG.ITERATRATIONS
+log_interval = CONFIG.LOG_INTERVAL
+path_imdb = CONFIG.IMDB_PATH
 
-parser.add_argument('--gpu', default=False, action='store_true',
-                    help='whether to run in the GPU')
-parser.add_argument('--model', default='AVae', metavar='',
-                    help='choose the model: {`vae`, `AVae`}, (default: `AVae`)')
+dataset = Read_Dataset(path_imdb)
 
-args = parser.parse_args()
-
-
-mb_size = 32
-z_dim = 64
-h_dim = 512
-lr = 1e-3
-lr_decay_every = 1000000
-n_iter = 20000
-log_interval = 1000
-z_dim = h_dim
-c_dim = 2
-
-dataset = SST_Dataset()
-#dataset = Test_Dataset()
-
-torch.manual_seed(int(time.time()))
+#torch.manual_seed(int(time.time()))
 
 model = RNN_VAE(
-    dataset.n_vocab, h_dim, z_dim, c_dim, p_word_dropout=0.3,
-    pretrained_embeddings=dataset.get_vocab_vectors(), freeze_embeddings=True,
-    gpu=args.gpu
+    len(dataset.TEXT.vocab.vectors), h_dim, z_dim, c_dim, p_word_dropout=0.3,
+    pretrained_embeddings=dataset.TEXT.vocab.vectors, freeze_embeddings=True,
+    gpu=CONFIG.GPU
 )
 
-if args.gpu:
-    model.load_state_dict(torch.load('models/default para/{}.bin'.format("AVae")))
-else:
-    model.load_state_dict(torch.load('models/default para/{}.bin'.format("AVae"), map_location=lambda storage, loc: storage))
+def load_pretrained_model(model, path):
+    pretrained_dict = torch.load(path)
+    model_dict = model.state_dict()
+    dict_update = {}
+    for k, v in pretrained_dict.items():
+        if v.size() == model_dict[k].size():
+            dict_update[k] = v
+        else:
+            print(k)
+    model_dict.update(dict_update)
+    model.load_state_dict(model_dict)
+    model.eval()
 
-model.eval()
+load_pretrained_model(model, CONFIG.MODEL_PATH + 'avae_' + str(CONFIG.C_DIM))
 
-for i in range(0,1):
-    # Samples latent and conditional codes randomly from prior
+
+for count in range(0,20):
     z = model.sample_z_prior(1)
     c = model.sample_c_prior(1)
-
-    # Generate positive sample given z
-    c[0, 0], c[0, 1] = 1, 0
-
     _, c_idx = torch.max(c, dim=1)
-    sample_idxs = model.sample_sentence(z, c, temp=2)
-
-    print('\nSentiment: {}'.format(dataset.idx2label(int(c_idx))))
-    print('Generated: {}'.format(dataset.idxs2sentence(sample_idxs)))
-
-    # Generate negative sample from the same z
-    z = model.sample_z_prior(1)
-    c = model.sample_c_prior(1)
-    c[0, 0], c[0, 1] = 1, 0
-
-    _, c_idx = torch.max(c, dim=1)
-    sample_idxs = model.sample_sentence(z, c, temp=2)
-
-    print('\nSentiment: {}'.format(dataset.idx2label(int(c_idx))))
-    print('Generated: {}'.format(dataset.idxs2sentence(sample_idxs)))
-
-    print()
+    sample_idxs = model.sample_sentence(z, c)
+    print('\nSentiment: {}'.format(dataset.idx2label(int(c_idx) + 1)))
+    print('{}\n'.format(dataset.idxs2sentence(sample_idxs)))
 
 
-def write_file():
-    data = open("sample","w",newline='')
-    csv_writer = csv.writer(data,delimiter='\t')
-    csv_writer.writerow(["text", "label"])
-    for i in range(0, 1000):
-        # Samples latent and conditional codes randomly from prior
-        z = model.sample_z_prior(1)
-        c = model.sample_c_prior(1)
 
-        # Generate positive sample given z
-        c[0, 0], c[0, 1] = 1, 0
-
-        _, c_idx = torch.max(c, dim=1)
-        sample_idxs = model.sample_sentence(z, c, temp=0.9)
-
-        csv_writer.writerow([format(dataset.idxs2sentence(sample_idxs)),0])
-
-
-    for i in range(0, 1000):
-        # Samples latent and conditional codes randomly from prior
-        z = model.sample_z_prior(1)
-        c = model.sample_c_prior(1)
-
-        # Generate positive sample given z
-        c[0, 0], c[0, 1] = 0, 1
-
-        _, c_idx = torch.max(c, dim=1)
-        sample_idxs = model.sample_sentence(z, c, temp=0.9)
-
-        csv_writer.writerow([format(dataset.idxs2sentence(sample_idxs)),1])
-
-if __name__ == '__main__':
-    write_file()
