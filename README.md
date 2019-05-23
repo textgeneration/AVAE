@@ -8,7 +8,7 @@
 When you have configured this parameters, you can train the model.
 2. Run `python train_vae.py `. This will create `vae_c-dimension_iteraion`. Essentially this is the base VAE.
 3. Run `python train_avae.py`. This will create `avae_c-dimension_iteration`. 
-4. Run `test.py ` for basic evaluations, for example random generate sentence.
+4. Run `test.py ` for basic evaluations, for example random generating sentence.
 
 ## Tips
 1. We use review dataset consists of some meaningless symbol and you need to clean the dataset. We offer a tools avae/preprocess.py and also offer the text data that has been clean, which can be download from <https://drive.google.com/drive/folders/1DQBaaoV6cCZD2uLe-zLay0YfmdjHR6sq?usp=sharing>. If you need the original review dataset, you can download them from the official website.
